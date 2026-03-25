@@ -105,6 +105,14 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
 ::-webkit-scrollbar{width:4px}
 ::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
 @media(max-width:768px){.sidebar{width:100%;height:auto;position:relative}.main{margin-left:0;padding:16px}.g4,.g3{grid-template-columns:repeat(2,1fr)}.g2{grid-template-columns:1fr}}
+@media print {
+  .sidebar, .page-header .header-actions, .tabs, #cus-pdf-panel,
+  .btn, button { display: none !important; }
+  .main { margin-left: 0 !important; }
+  #cost-sheet-printable { border: none !important; padding: 0 !important; }
+  body { background: white !important; color: black !important; }
+  .tbl th, .tbl td { border: 1px solid #ddd !important; color: black !important; }
+}
 </style>
 </head>
 <body>
@@ -411,19 +419,159 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
 <!-- ── 통관 현황 ── -->
 <div id="page-customs" class="pane">
   <div class="page-header">
-    <div><div class="page-title">통관 현황</div><div class="page-sub">수입 통관 진행 건</div></div>
-    <div class="header-actions"><button class="btn btn-teal" onclick="openModal('customs')">+ 통관 건 추가</button></div>
+    <div><div class="page-title">통관 현황</div><div class="page-sub">수입 통관 진행 · PDF 자동 추출 · 비용 정산</div></div>
+    <div class="header-actions">
+      <button class="btn btn-blue" onclick="openCusPdfUpload()">📄 PDF 업로드</button>
+      <button class="btn btn-teal" onclick="openModal('customs')">+ 수기 등록</button>
+    </div>
   </div>
-  <div class="g4">
-    <div class="mc"><div class="mc-lbl">진행 중</div><div class="mc-val" id="cus-ongoing">0건</div></div>
-    <div class="mc"><div class="mc-lbl">이번 달 완료</div><div class="mc-val" id="cus-done">0건</div></div>
-    <div class="mc"><div class="mc-lbl">자동 신고율</div><div class="mc-val mc-up">94%</div></div>
-    <div class="mc"><div class="mc-lbl">평균 소요일</div><div class="mc-val">1.8일</div></div>
+
+  <!-- KPI 6개 -->
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px">
+    <div class="mc" style="cursor:pointer" onclick="setCusFilterStatus('run')">
+      <div class="mc-lbl">진행 중</div>
+      <div class="mc-val" id="cus-ongoing">0건</div>
+    </div>
+    <div class="mc" style="cursor:pointer" onclick="setCusFilterStatus('done_month')">
+      <div class="mc-lbl">이달 통관</div>
+      <div class="mc-val" id="cus-done-month">0건</div>
+    </div>
+    <div class="mc" style="cursor:pointer" onclick="setCusFilterStatus('done_year')">
+      <div class="mc-lbl">올해 통관</div>
+      <div class="mc-val" id="cus-done-year">0건</div>
+    </div>
+    <div class="mc" style="cursor:pointer;border-color:rgba(96,165,250,0.4)" onclick="setCusFilterStatus('inspect')">
+      <div class="mc-lbl" style="color:var(--blue)">검사 진행 중</div>
+      <div class="mc-val" id="cus-inspect">0건</div>
+    </div>
+    <div class="mc" style="cursor:pointer;border-color:rgba(167,139,250,0.4)" onclick="setCusFilterStatus('precise')">
+      <div class="mc-lbl" style="color:var(--purple)">정밀 진행 중</div>
+      <div class="mc-val" id="cus-precise">0건</div>
+    </div>
+    <div class="mc" style="cursor:pointer;border-color:rgba(248,113,113,0.4)" onclick="setCusFilterStatus('reject')">
+      <div class="mc-lbl" style="color:var(--red)">부적합</div>
+      <div class="mc-val" id="cus-reject">0건</div>
+    </div>
   </div>
-  <div class="card"><div class="tbl-scroll"><table class="tbl">
-    <thead><tr><th>수출자</th><th>수입자</th><th>B/L</th><th>품목</th><th>품목수량</th><th>수량</th><th>Net Weight</th><th>지정창고</th><th>창고입고일</th><th>특이사항</th><th></th></tr></thead>
-    <tbody id="customs-body"></tbody>
-  </table></div></div>
+
+  <!-- 부적합 상세 패널 (부적합 건 있을 때 표시) -->
+  <div id="cus-reject-panel" style="display:none;margin-bottom:14px">
+    <div class="card" style="border-color:rgba(248,113,113,0.5);background:rgba(248,113,113,0.05)">
+      <div class="card-hd">
+        <span class="card-title" style="color:var(--red)">⚠️ 부적합 현황</span>
+        <button class="btn" style="font-size:11px" onclick="document.getElementById('cus-reject-panel').style.display='none'">닫기</button>
+      </div>
+      <div id="cus-reject-list" style="font-size:12px"></div>
+    </div>
+  </div>
+
+  <!-- PDF 업로드 패널 -->
+  <div id="cus-pdf-panel" style="display:none;margin-bottom:14px">
+    <div class="card" style="border-color:rgba(96,165,250,0.4)">
+      <div class="card-hd">
+        <span class="card-title">📂 서류 자동 추출</span>
+        <button class="btn" style="font-size:11px" onclick="closeCusPdfUpload()">닫기</button>
+      </div>
+      <div style="font-size:12px;color:var(--text2);margin-bottom:12px;line-height:1.8">
+        B/L, 인보이스, 패킹리스트, 원산지증명서 등을 업로드하면 AI가 통관 정보를 자동 추출합니다.<br>
+        <span style="color:var(--text3)">지원 형식: PDF · 사진(JPG/PNG) · 엑셀(XLS/XLSX) · 한글(HWP) · Word(DOC/DOCX)</span>
+      </div>
+
+      <!-- 파일 타입 선택 -->
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
+        <span style="font-size:11px;color:var(--text3);align-self:center">서류 종류:</span>
+        <select class="btn" id="cus-doc-type" style="cursor:pointer;font-size:11px">
+          <option value="bl">선하증권 B/L</option>
+          <option value="invoice">인보이스 (Invoice)</option>
+          <option value="packing">패킹리스트 (Packing List)</option>
+          <option value="origin">원산지증명서</option>
+          <option value="import_decl">수입신고서</option>
+          <option value="contract">계약서</option>
+          <option value="other">기타</option>
+        </select>
+      </div>
+
+      <!-- 파일 업로드 영역 -->
+      <div id="cus-drop-zone"
+        style="border:2px dashed var(--border2);border-radius:10px;padding:24px;text-align:center;cursor:pointer;transition:border-color .2s;margin-bottom:12px"
+        ondragover="event.preventDefault();this.style.borderColor='var(--teal)'"
+        ondragleave="this.style.borderColor='var(--border2)'"
+        ondrop="handleCusFileDrop(event)">
+        <div style="font-size:28px;margin-bottom:8px">📄</div>
+        <div style="font-size:13px;color:var(--text2)">파일을 여기로 드래그하거나</div>
+        <label class="btn btn-blue" style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;margin-top:10px">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v8M4 6l4-4 4 4M2 12h12"/></svg>
+          파일 선택
+          <input type="file" id="cus-doc-file" style="display:none"
+            accept=".pdf,.jpg,.jpeg,.png,.xls,.xlsx,.doc,.docx,.hwp"
+            onchange="autoDetectDocType(this.files[0]?.name||''); parseCusDoc(this.files[0])">
+        </label>
+        <div style="font-size:11px;color:var(--text3);margin-top:8px">PDF · JPG · PNG · XLS · XLSX · DOC · DOCX</div>
+      </div>
+
+      <!-- 로딩 + 결과 -->
+      <div id="cus-doc-loading" style="display:none;text-align:center;padding:16px">
+        <div style="font-size:14px;color:var(--blue);margin-bottom:6px">🔄 AI가 서류를 분석하고 있습니다...</div>
+        <div style="font-size:11px;color:var(--text3)" id="cus-doc-loading-msg">잠시만 기다려주세요</div>
+      </div>
+      <div id="cus-pdf-result"></div>
+    </div>
+  </div>
+
+  <!-- 탭: 통관 내역 / 비용 정산서 -->
+  <div class="tabs">
+    <button class="tab-btn on" onclick="setCusTab('list',this)">통관 내역</button>
+    <button class="tab-btn" onclick="setCusTab('cost',this)">비용 정산서</button>
+  </div>
+
+  <!-- 통관 내역 탭 -->
+  <div id="cus-tab-list">
+    <!-- 필터 -->
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;align-items:center">
+      <select class="btn" id="cus-filter-status" onchange="renderCustoms()" style="cursor:pointer">
+        <option value="all">전체 상태</option>
+        <option value="run">진행 중</option>
+        <option value="wait">대기</option>
+        <option value="inspect">검사 진행 중</option>
+        <option value="precise">정밀 진행 중</option>
+        <option value="reject">부적합</option>
+        <option value="done">완료</option>
+      </select>
+      <select class="btn" id="cus-filter-importer" onchange="renderCustoms()" style="cursor:pointer">
+        <option value="all">전체 수입자</option>
+      </select>
+      <input type="month" class="btn" id="cus-filter-month" onchange="renderCustoms()" style="cursor:pointer">
+    </div>
+
+    <div class="card">
+      <div class="tbl-scroll"><table class="tbl">
+        <thead><tr>
+          <th>상태</th><th>수출자</th><th>수입자</th>
+          <th>B/L</th><th>품목</th><th>수량</th><th>Net Weight</th>
+          <th>지정창고</th><th>창고입고일</th>
+          <th style="color:var(--amber)">통관비용</th>
+          <th>특이사항</th><th></th>
+        </tr></thead>
+        <tbody id="customs-body"></tbody>
+      </table></div>
+    </div>
+  </div>
+
+  <!-- 비용 정산서 탭 -->
+  <div id="cus-tab-cost" style="display:none">
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center">
+      <input type="month" class="btn" id="cus-cost-month-filter" onchange="renderCusCostSheet()" style="cursor:pointer">
+      <select class="btn" id="cus-cost-importer-filter" onchange="renderCusCostSheet()" style="cursor:pointer">
+        <option value="all">전체 수입자</option>
+      </select>
+      <button class="btn btn-teal" onclick="exportCusCostPdf()">📥 PDF 내보내기</button>
+    </div>
+
+    <!-- 정산서 본문 -->
+    <div id="cus-cost-sheet">
+      <!-- renderCusCostSheet()로 동적 생성 -->
+    </div>
+  </div>
 </div>
 
 <!-- ── 입출고 관리 ── -->
@@ -553,13 +701,29 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
 <!-- ── 거래처 관리 ── -->
 <div id="page-clients" class="pane">
   <div class="page-header">
-    <div><div class="page-title">거래처 관리</div><div class="page-sub">수발주·직송 거래처 등록</div></div>
-    <div class="header-actions"><button class="btn btn-teal" onclick="openModal('client')">+ 거래처 추가</button></div>
+    <div><div class="page-title">거래처 관리</div><div class="page-sub">업체 정보 · 담당자 · 입고센터</div></div>
+    <div class="header-actions">
+      <input class="btn" id="cl-search" placeholder="🔍 업체명 검색" oninput="renderClients()" style="width:160px">
+      <button class="btn btn-teal" onclick="openClientModal()">+ 거래처 추가</button>
+    </div>
   </div>
-  <div class="card"><div class="tbl-scroll"><table class="tbl">
-    <thead><tr><th>거래처명</th><th>유형</th><th>플랫폼</th><th>담당자</th><th>연락처</th><th>비고</th><th></th></tr></thead>
-    <tbody id="clients-body"></tbody>
-  </table></div></div>
+  <div class="card">
+    <div class="tbl-scroll"><table class="tbl">
+      <thead><tr>
+        <th>업체명</th>
+        <th>입고 센터명</th>
+        <th>사업자번호</th>
+        <th>주소</th>
+        <th>담당1</th>
+        <th>담당2</th>
+        <th>입고대행</th>
+        <th>상황담당</th>
+        <th>비고</th>
+        <th></th>
+      </tr></thead>
+      <tbody id="clients-body"></tbody>
+    </table></div>
+  </div>
 </div>
 
 <!-- ── 플랫폼·수수료 ── -->
@@ -715,42 +879,164 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
 
 <!-- 통관 -->
 <div class="modal-overlay" id="modal-customs"><div class="modal modal-wide">
-  <div class="modal-title">통관 건 추가</div>
+  <div class="modal-title" id="cus-modal-title">통관 건 등록</div>
+
+  <!-- B/L 기본정보 -->
+  <div style="font-size:11px;color:var(--text3);margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--border)">기본 정보</div>
   <div class="form-row2">
-    <div><label class="form-label">수출자</label><input class="form-input" id="cus-exporter" placeholder="Frantoio Italia"></div>
-    <div><label class="form-label">수입자</label><input class="form-input" id="cus-importer" placeholder="(주)수입물산"></div>
+    <div><label class="form-label">수출자</label><input class="form-input" id="cus-exporter" placeholder="Frantoio Italia S.r.l"></div>
+    <div><label class="form-label">수입자</label><input class="form-input" id="cus-importer" placeholder="(주)버드상사"></div>
   </div>
-  <div class="form-row"><label class="form-label">B/L 번호</label><input class="form-input" id="cus-bl" placeholder="MSCKR2403210001"></div>
   <div class="form-row2">
-    <div><label class="form-label">품목</label><input class="form-input" id="cus-item" placeholder="올리브오일"></div>
+    <div><label class="form-label">B/L 번호</label><input class="form-input" id="cus-bl" placeholder="MSCKR2403210001"></div>
+    <div><label class="form-label">HS 코드</label><input class="form-input" id="cus-hs" placeholder="0703.10"></div>
+  </div>
+  <div class="form-row2">
+    <div><label class="form-label">품목</label><input class="form-input" id="cus-item" placeholder="깐양파"></div>
     <div><label class="form-label">품목 수량</label><input class="form-input" id="cus-itemqty" type="number" placeholder="3"></div>
   </div>
   <div class="form-row2">
     <div><label class="form-label">수량</label><input class="form-input" id="cus-qty" placeholder="500박스"></div>
-    <div><label class="form-label">Net Weight (kg)</label><input class="form-input" id="cus-netweight" placeholder="1250.5"></div>
+    <div><label class="form-label">Net Weight (kg)</label><input class="form-input" id="cus-netweight" type="number" placeholder="1250.5"></div>
+  </div>
+  <div class="form-row2">
+    <div><label class="form-label">원산지</label><input class="form-input" id="cus-origin" placeholder="중국"></div>
+    <div><label class="form-label">인보이스 금액 (USD)</label><input class="form-input" id="cus-invoice-amt" type="number" placeholder="5800"></div>
+  </div>
+
+  <!-- 일정 -->
+  <div style="font-size:11px;color:var(--text3);margin:10px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border)">일정</div>
+  <div class="form-row2">
+    <div><label class="form-label">선적일</label><input class="form-input" id="cus-shipdate" type="date"></div>
+    <div><label class="form-label">입항 예정일</label><input class="form-input" id="cus-arrdate" type="date"></div>
   </div>
   <div class="form-row2">
     <div><label class="form-label">지정창고</label><input class="form-input" id="cus-warehouse" placeholder="인천 CFS 3번"></div>
     <div><label class="form-label">창고 입고일</label><input class="form-input" id="cus-whdate" type="date"></div>
   </div>
+
+  <!-- B/L 상세 정보 -->
+  <div style="font-size:11px;color:var(--text3);margin:10px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border)">
+    B/L 상세 정보
+    <button type="button" onclick="toggleCusBLDetail()" style="margin-left:8px;font-size:10px;background:none;border:1px solid var(--border);border-radius:4px;color:var(--text3);cursor:pointer;padding:1px 6px" id="bl-detail-toggle">▼ 펼치기</button>
+  </div>
+  <div id="cus-bl-detail" style="display:none">
+    <div class="form-row2">
+      <div><label class="form-label">선박명/항차</label><input class="form-input" id="cus-vessel" placeholder="OCEAN BLUE WHALE / 2585E"></div>
+      <div><label class="form-label">컨테이너 번호</label><input class="form-input" id="cus-container" placeholder="SEGU9582880"></div>
+    </div>
+    <div class="form-row2">
+      <div><label class="form-label">컨테이너 유형</label><input class="form-input" id="cus-container-type" placeholder="1*40HR"></div>
+      <div><label class="form-label">씰(SEAL) 번호</label><input class="form-input" id="cus-seal" placeholder="2533592"></div>
+    </div>
+    <div class="form-row2">
+      <div><label class="form-label">선적항</label><input class="form-input" id="cus-port-loading" placeholder="YANTAI, CHINA"></div>
+      <div><label class="form-label">양하항</label><input class="form-input" id="cus-port-discharge" placeholder="PYEONGTAEK PORT, KOREA"></div>
+    </div>
+    <div class="form-row2">
+      <div><label class="form-label">운임 조건</label><input class="form-input" id="cus-freight-terms" placeholder="PREPAID"></div>
+      <div><label class="form-label">포장 수량</label><input class="form-input" id="cus-pkg-count" placeholder="1230 CTNS"></div>
+    </div>
+    <div class="form-row2">
+      <div><label class="form-label">CBM</label><input class="form-input" id="cus-cbm" type="number" placeholder="50"></div>
+      <div><label class="form-label">냉장 온도</label><input class="form-input" id="cus-temp" placeholder="0°C"></div>
+    </div>
+    <div class="form-row2">
+      <div><label class="form-label">Notify Party</label><input class="form-input" id="cus-notify" placeholder="NAMHWA SEA&AIR"></div>
+      <div><label class="form-label">환기량(VENT)</label><input class="form-input" id="cus-vent" placeholder="15CBM/H"></div>
+    </div>
+  </div>
+
+  <!-- 통관 비용 -->
+  <div style="font-size:11px;color:var(--text3);margin:10px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border)">통관 비용 (원)</div>
+  <div class="form-row2">
+    <div><label class="form-label">관세</label><input class="form-input" id="cus-tariff" type="number" placeholder="0"></div>
+    <div><label class="form-label">부가세</label><input class="form-input" id="cus-vat" type="number" placeholder="0"></div>
+  </div>
+  <div class="form-row2">
+    <div><label class="form-label">통관 대행료</label><input class="form-input" id="cus-agency-fee" type="number" placeholder="0"></div>
+    <div><label class="form-label">창고료/운반비</label><input class="form-input" id="cus-warehouse-fee" type="number" placeholder="0"></div>
+  </div>
+  <div class="form-row2">
+    <div><label class="form-label">검역/검사비</label><input class="form-input" id="cus-inspect-fee" type="number" placeholder="0"></div>
+    <div>
+      <label class="form-label">합계 (자동계산)</label>
+      <input class="form-input" id="cus-total-cost" readonly style="background:var(--bg3);color:var(--amber);font-weight:600" placeholder="₩0">
+    </div>
+  </div>
+
+  <div class="form-row2">
+    <div>
+      <label class="form-label">상태</label>
+      <select class="form-select" id="cus-status">
+        <option value="run">진행 중</option>
+        <option value="wait">대기</option>
+        <option value="inspect">🔵 검사 진행 중</option>
+        <option value="precise">🟣 정밀 진행 중</option>
+        <option value="reject">🔴 부적합</option>
+        <option value="done">✅ 완료</option>
+      </select>
+    </div>
+    <div><label class="form-label">통관사</label><input class="form-input" id="cus-broker" placeholder="○○관세사무소"></div>
+  </div>
   <div class="form-row"><label class="form-label">특이사항</label><input class="form-input" id="cus-note" placeholder="냉장 보관 필요, 검역 대상 등"></div>
-  <div class="modal-actions"><button class="btn" onclick="closeModal('customs')">취소</button><button class="btn btn-teal" onclick="addCustoms()">저장</button></div>
+
+  <input type="hidden" id="cus-edit-id">
+  <div class="modal-actions">
+    <button class="btn" onclick="closeModal('customs')">취소</button>
+    <button class="btn btn-teal" onclick="addCustoms()">저장</button>
+  </div>
 </div></div>
 
 <!-- 거래처 -->
-<div class="modal-overlay" id="modal-client"><div class="modal">
-  <div class="modal-title">거래처 추가</div>
-  <div class="form-row"><label class="form-label">거래처명</label><input class="form-input" id="cl-name" placeholder="(주)마트유통"></div>
+<div class="modal-overlay" id="modal-client"><div class="modal modal-wide">
+  <div class="modal-title" id="cl-modal-title">거래처 추가</div>
+
+  <!-- 기본 정보 -->
+  <div style="font-size:11px;color:var(--text3);margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--border)">기본 정보</div>
   <div class="form-row2">
+    <div><label class="form-label">업체명 <span style="color:var(--red)">*</span></label><input class="form-input" id="cl-name" placeholder="(주)마트유통"></div>
+    <div><label class="form-label">입고 센터명</label><input class="form-input" id="cl-center" placeholder="인천 냉장센터"></div>
+  </div>
+  <div class="form-row2">
+    <div><label class="form-label">사업자등록번호</label><input class="form-input" id="cl-bizno" placeholder="123-45-67890" maxlength="12"></div>
     <div><label class="form-label">유형</label><select class="form-select" id="cl-type"><option>수발주</option><option>직송</option><option>혼합</option></select></div>
-    <div><label class="form-label">연동 플랫폼</label><select class="form-select" id="cl-platform"><option value="">없음</option></select></div>
   </div>
+  <div class="form-row">
+    <label class="form-label">주소</label>
+    <input class="form-input" id="cl-address" placeholder="경기도 평택시 ○○로 123">
+  </div>
+
+  <!-- 담당자 1 -->
+  <div style="font-size:11px;color:var(--text3);margin:10px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border)">담당자 1</div>
   <div class="form-row2">
-    <div><label class="form-label">담당자</label><input class="form-input" id="cl-manager" placeholder="김담당"></div>
-    <div><label class="form-label">연락처</label><input class="form-input" id="cl-contact" placeholder="010-0000-0000"></div>
+    <div><label class="form-label">성명</label><input class="form-input" id="cl-mgr1-name" placeholder="홍길동"></div>
+    <div><label class="form-label">전화번호</label><input class="form-input" id="cl-mgr1-tel" placeholder="010-0000-0000"></div>
   </div>
-  <div class="form-row"><label class="form-label">비고</label><input class="form-input" id="cl-note" placeholder=""></div>
-  <div class="modal-actions"><button class="btn" onclick="closeModal('client')">취소</button><button class="btn btn-teal" onclick="addClient()">저장</button></div>
+
+  <!-- 담당자 2 -->
+  <div style="font-size:11px;color:var(--text3);margin:10px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border)">담당자 2</div>
+  <div class="form-row2">
+    <div><label class="form-label">성명</label><input class="form-input" id="cl-mgr2-name" placeholder="김철수"></div>
+    <div><label class="form-label">전화번호</label><input class="form-input" id="cl-mgr2-tel" placeholder="010-0000-0000"></div>
+  </div>
+
+  <!-- 기타 -->
+  <div style="font-size:11px;color:var(--text3);margin:10px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border)">기타</div>
+  <div class="form-row2">
+    <div><label class="form-label">입고대행</label><input class="form-input" id="cl-proxy" placeholder="○○물류"></div>
+    <div><label class="form-label">상황담당</label><input class="form-input" id="cl-situation" placeholder="담당자명 또는 부서"></div>
+  </div>
+  <div class="form-row">
+    <label class="form-label">비고</label>
+    <input class="form-input" id="cl-note" placeholder="냉장 전용, 납품 요일 제한 등">
+  </div>
+
+  <input type="hidden" id="cl-edit-id">
+  <div class="modal-actions">
+    <button class="btn" onclick="closeModal('client')">취소</button>
+    <button class="btn btn-teal" onclick="addClient()">저장</button>
+  </div>
 </div></div>
 
 <!-- 업체 수수료 설정 -->
@@ -1218,31 +1504,809 @@ function addInventory(){
 }
 
 // ══ CUSTOMS ════════════════════════════════════════════════════════
-function renderCustoms(){
-  const body=document.getElementById('customs-body'); if(!body)return;
-  document.getElementById('cus-ongoing').textContent=DB.customs.filter(d=>d.status!=='done').length+'건';
-  document.getElementById('cus-done').textContent=DB.customs.filter(d=>d.status==='done').length+'건';
-  body.innerHTML=DB.customs.map(d=>{
-    const already=DB.inventory.some(x=>x.bl===d.bl);
-    const btn=already?`<span class="badge b-teal">등록됨</span>`:`<button class="btn btn-teal" style="font-size:10px;padding:3px 7px;white-space:nowrap" onclick="regFromCustoms(${d.id})">→ 재고등록</button>`;
-    return`<tr><td>${d.exporter||'-'}</td><td>${d.importer||'-'}</td><td class="mono" style="font-size:10px">${d.bl||'-'}</td><td>${d.item||'-'}</td><td>${d.itemqty||'-'}</td><td>${d.qty||'-'}</td><td>${d.netweight?d.netweight+'kg':'-'}</td><td>${d.warehouse||'-'}</td><td style="font-size:11px">${d.whdate||'-'}</td><td style="font-size:11px;color:${d.note?'var(--amber)':'var(--text3)'}" title="${d.note||''}">${d.note||'-'}</td><td style="display:flex;gap:4px">${btn}<button class="btn" style="font-size:10px;padding:3px 6px;color:var(--red)" onclick="delItem('customs',${d.id})">삭제</button></td></tr>`;
-  }).join('')||'<tr><td colspan="11" style="text-align:center;padding:20px;color:var(--text3)">데이터 없음</td></tr>';
+// ══ CUSTOMS ════════════════════════════════════════════════════════
+let _cusTab = 'list';
+
+function setCusTab(tab, el) {
+  _cusTab = tab;
+  document.getElementById('cus-tab-list').style.display = tab==='list' ? '' : 'none';
+  document.getElementById('cus-tab-cost').style.display = tab==='cost' ? '' : 'none';
+  document.querySelectorAll('#page-customs .tab-btn').forEach(b => b.classList.remove('on'));
+  if (el) el.classList.add('on');
+  if (tab === 'cost') renderCusCostSheet();
 }
-function addCustoms(){
-  const e=document.getElementById('cus-exporter').value.trim(); if(!e){showToast('수출자 입력 필요','err');return;}
-  const item={id:Date.now(),exporter:e,importer:document.getElementById('cus-importer').value,bl:document.getElementById('cus-bl').value,item:document.getElementById('cus-item').value,itemqty:document.getElementById('cus-itemqty').value,qty:document.getElementById('cus-qty').value,netweight:document.getElementById('cus-netweight').value,warehouse:document.getElementById('cus-warehouse').value,whdate:document.getElementById('cus-whdate').value,note:document.getElementById('cus-note').value,status:'run'};
-  DB.customs.push(item); save(); closeModal('customs'); renderCustoms(); showToast('통관 건 추가','ok');
+
+function openCusPdfUpload() {
+  const p = document.getElementById('cus-pdf-panel');
+  if (p) p.style.display = p.style.display === 'none' ? '' : 'none';
 }
-function regFromCustoms(id){
-  const c=DB.customs.find(d=>d.id===id); if(!c)return;
-  document.getElementById('inv-bl').value=c.bl||'';
-  document.getElementById('inv-name').value=c.item||'';
-  document.getElementById('inv-vendor').value=c.exporter||'';
-  const specEl=document.getElementById('inv-spec'); if(specEl)specEl.value='';
-  ['inv-seq','inv-stock','inv-daily-order','inv-daily-direct'].forEach(i=>document.getElementById(i).value='');
-  document.getElementById('inv-safe-rate').value='20';
-  document.getElementById('inv-lead').value='21';
-  openModal('inv'); showToast('통관 정보 자동 입력됨. 규격·수량·발주량 입력하세요.');
+function closeCusPdfUpload() {
+  const p = document.getElementById('cus-pdf-panel');
+  if (p) p.style.display = 'none';
+}
+
+// 비용 자동합계
+function calcCusTotalCost() {
+  const ids = ['cus-tariff','cus-vat','cus-agency-fee','cus-warehouse-fee','cus-inspect-fee'];
+  const total = ids.reduce((s,id) => s + (parseFloat(document.getElementById(id)?.value)||0), 0);
+  const el = document.getElementById('cus-total-cost');
+  if (el) el.value = total > 0 ? '₩' + Math.round(total).toLocaleString() : '₩0';
+  return total;
+}
+// 비용 필드에 이벤트 등록 (초기화 후)
+function bindCusCostEvents() {
+  ['cus-tariff','cus-vat','cus-agency-fee','cus-warehouse-fee','cus-inspect-fee'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.oninput = calcCusTotalCost;
+  });
+}
+
+function openModal(id) {
+  if (id === 'customs') {
+    document.getElementById('cus-edit-id').value = '';
+    document.getElementById('cus-modal-title').textContent = '통관 건 등록';
+    ['cus-exporter','cus-importer','cus-bl','cus-hs','cus-item','cus-itemqty',
+     'cus-qty','cus-netweight','cus-origin','cus-invoice-amt','cus-shipdate',
+     'cus-arrdate','cus-warehouse','cus-whdate','cus-tariff','cus-vat',
+     'cus-agency-fee','cus-warehouse-fee','cus-inspect-fee','cus-broker','cus-note'
+    ].forEach(i => { const el=document.getElementById(i); if(el) el.value=''; });
+    const stEl = document.getElementById('cus-status');
+    if (stEl) stEl.value = 'run';
+    calcCusTotalCost();
+    bindCusCostEvents();
+  }
+  if (id === 'inout') {
+    populateInvSelect('io-inv-id');
+    const dateEl = document.getElementById('io-date');
+    if (dateEl && !dateEl.value) dateEl.value = new Date().toISOString().slice(0,10);
+  }
+  if (id === 'order-manual') {
+    updatePlatformSelects();
+    const d = document.getElementById('om-date');
+    if (d && !d.value) d.value = new Date().toISOString().slice(0,10);
+  }
+  if (id === 'safe-rate') renderSafeRateList();
+  document.getElementById('modal-'+id)?.classList.add('open');
+}
+
+function editCustoms(id) {
+  const d = DB.customs.find(c => c.id === id); if (!d) return;
+  document.getElementById('cus-edit-id').value = id;
+  document.getElementById('cus-modal-title').textContent = '통관 건 수정';
+  const set = (elId, val) => { const el=document.getElementById(elId); if(el) el.value=val||''; };
+  set('cus-exporter', d.exporter); set('cus-importer', d.importer);
+  set('cus-bl', d.bl); set('cus-hs', d.hs);
+  set('cus-item', d.item); set('cus-itemqty', d.itemqty);
+  set('cus-qty', d.qty); set('cus-netweight', d.netweight);
+  set('cus-origin', d.origin); set('cus-invoice-amt', d.invoiceAmt);
+  set('cus-shipdate', d.shipdate); set('cus-arrdate', d.arrdate);
+  set('cus-warehouse', d.warehouse); set('cus-whdate', d.whdate);
+  set('cus-tariff', d.tariff); set('cus-vat', d.vat);
+  set('cus-agency-fee', d.agencyFee); set('cus-warehouse-fee', d.warehouseFee);
+  set('cus-inspect-fee', d.inspectFee);
+  set('cus-broker', d.broker); set('cus-note', d.note);
+  // B/L 상세
+  set('cus-vessel', d.vessel);           set('cus-container', d.container);
+  set('cus-container-type', d.containerType); set('cus-seal', d.seal);
+  set('cus-port-loading', d.portLoading); set('cus-port-discharge', d.portDischarge);
+  set('cus-freight-terms', d.freightTerms); set('cus-pkg-count', d.pkgCount);
+  set('cus-cbm', d.cbm); set('cus-temp', d.temp);
+  set('cus-vent', d.vent); set('cus-notify', d.notify);
+  if (d.vessel || d.container) {
+    const dl = document.getElementById('cus-bl-detail');
+    const bl = document.getElementById('bl-detail-toggle');
+    if (dl) dl.style.display = '';
+    if (bl) bl.textContent = '▲ 접기';
+  }
+  document.getElementById('cus-status').value = d.status || 'run';
+  calcCusTotalCost();
+  bindCusCostEvents();
+  document.getElementById('modal-customs')?.classList.add('active');
+}
+
+function renderCustoms() {
+  const body = document.getElementById('customs-body'); if (!body) return;
+
+  const today = new Date().toISOString().slice(0,10);
+  const month = today.slice(0,7);
+  const year  = today.slice(0,4);
+
+  // ── KPI 집계 ───────────────────────────────────────────────────
+  const ongoing     = DB.customs.filter(d => d.status === 'run').length;
+  const doneMonth   = DB.customs.filter(d => d.status === 'done' && (d.whdate?.startsWith(month)||d.arrdate?.startsWith(month))).length;
+  const doneYear    = DB.customs.filter(d => d.status === 'done' && (d.whdate?.startsWith(year)||d.arrdate?.startsWith(year))).length;
+  const inspectCnt  = DB.customs.filter(d => d.status === 'inspect').length;
+  const preciseCnt  = DB.customs.filter(d => d.status === 'precise').length;
+  const rejectCnt   = DB.customs.filter(d => d.status === 'reject').length;
+
+  const sv = id => { const el=document.getElementById(id); if(el) el.textContent=arguments[1]; };
+  document.getElementById('cus-ongoing')?.textContent && (document.getElementById('cus-ongoing').textContent = ongoing+'건');
+  document.getElementById('cus-done-month')  && (document.getElementById('cus-done-month').textContent  = doneMonth+'건');
+  document.getElementById('cus-done-year')   && (document.getElementById('cus-done-year').textContent   = doneYear+'건');
+  document.getElementById('cus-inspect')     && (document.getElementById('cus-inspect').textContent     = inspectCnt+'건');
+  document.getElementById('cus-precise')     && (document.getElementById('cus-precise').textContent     = preciseCnt+'건');
+  document.getElementById('cus-reject')      && (document.getElementById('cus-reject').textContent      = rejectCnt+'건');
+
+  // ── 부적합 패널 ─────────────────────────────────────────────────
+  const rejectList = DB.customs.filter(d => d.status === 'reject');
+  const rpanel = document.getElementById('cus-reject-panel');
+  const rlist  = document.getElementById('cus-reject-list');
+  if (rpanel && rlist) {
+    if (rejectList.length) {
+      rpanel.style.display = '';
+      rlist.innerHTML = rejectList.map(d => `
+        <div style="padding:10px 0;border-bottom:1px solid rgba(248,113,113,0.2);display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;align-items:center">
+          <div>
+            <div style="font-size:10px;color:var(--text3)">품목</div>
+            <div style="font-weight:600;color:var(--text)">${d.item||'-'}${d.origin?`<span class="badge ${originBadgeClass(d.origin)}" style="font-size:9px;margin-left:4px">${d.origin}</span>`:''}</div>
+            <div style="font-size:10px;color:var(--text3)">${d.bl||''}</div>
+          </div>
+          <div>
+            <div style="font-size:10px;color:var(--text3)">수출자</div>
+            <div style="font-size:12px;color:var(--text)">${d.exporter||'-'}</div>
+          </div>
+          <div>
+            <div style="font-size:10px;color:var(--text3)">수입자</div>
+            <div style="font-size:12px;color:var(--text)">${d.importer||'-'}</div>
+            <div style="font-size:10px;color:var(--red);margin-top:2px">${d.note||''}</div>
+            <button class="btn" style="font-size:10px;padding:2px 6px;margin-top:4px" onclick="editCustoms(${d.id})">수정</button>
+          </div>
+        </div>`).join('');
+    } else {
+      rpanel.style.display = 'none';
+    }
+  }
+
+  // ── 수입자 필터 셀렉트 ─────────────────────────────────────────
+  const importers = [...new Set(DB.customs.map(d=>d.importer).filter(Boolean))];
+  ['cus-filter-importer','cus-cost-importer-filter'].forEach(selId => {
+    const sel = document.getElementById(selId);
+    if (!sel) return;
+    const v = sel.value;
+    sel.innerHTML = '<option value="all">전체 수입자</option>' + importers.map(i=>`<option value="${i}">${i}</option>`).join('');
+    if (v) sel.value = v;
+  });
+
+  // ── 필터 적용 ──────────────────────────────────────────────────
+  const fStatus   = document.getElementById('cus-filter-status')?.value || 'all';
+  const fImporter = document.getElementById('cus-filter-importer')?.value || 'all';
+  const fMonth    = document.getElementById('cus-filter-month')?.value || '';
+
+  let list = [...DB.customs];
+  if (fStatus !== 'all') list = list.filter(d => d.status === fStatus);
+  if (fImporter !== 'all') list = list.filter(d => d.importer === fImporter);
+  if (fMonth) list = list.filter(d => d.whdate?.startsWith(fMonth) || d.arrdate?.startsWith(fMonth));
+
+  // ── 상태 배지 ─────────────────────────────────────────────────
+  const statusCfg = {
+    run:     { label:'진행중',    cls:'b-amber'  },
+    wait:    { label:'대기',      cls:'b-blue'   },
+    inspect: { label:'검사중',    cls:'b-blue'   },
+    precise: { label:'정밀검사',  cls:'b-purple' },
+    reject:  { label:'부적합',    cls:'b-red'    },
+    done:    { label:'완료',      cls:'b-teal'   },
+  };
+  const statusBadge = s => {
+    const cfg = statusCfg[s] || { label: s||'-', cls:'b-green' };
+    return `<span class="badge ${cfg.cls}">${cfg.label}</span>`;
+  };
+
+  body.innerHTML = list.map(d => {
+    const totalCost = (d.tariff||0)+(d.vat||0)+(d.agencyFee||0)+(d.warehouseFee||0)+(d.inspectFee||0);
+    const already   = DB.inventory.some(x=>x.bl===d.bl);
+    const invBtn    = already
+      ? `<span class="badge b-teal" style="font-size:10px">재고등록됨</span>`
+      : `<button class="btn btn-teal" style="font-size:10px;padding:2px 6px" onclick="regFromCustoms(${d.id})">→재고등록</button>`;
+    const blSub = [d.vessel, d.container, d.containerType,
+      d.portLoading ? d.portLoading+'→'+d.portDischarge : '']
+      .filter(Boolean).join(' | ');
+    return `<tr${d.status==='reject'?' style="background:rgba(248,113,113,0.06)"':d.status==='precise'?' style="background:rgba(167,139,250,0.05)"':d.status==='inspect'?' style="background:rgba(96,165,250,0.05)"':''}>
+      <td>${statusBadge(d.status)}</td>
+      <td style="font-size:11px">${d.exporter||'-'}</td>
+      <td style="font-size:11px">${d.importer||'-'}</td>
+      <td>
+        <div class="mono" style="font-size:10px">${d.bl||'-'}</div>
+        ${blSub?`<div style="font-size:10px;color:var(--text3);margin-top:2px">${blSub}</div>`:''}
+      </td>
+      <td>
+        <div>${d.item||'-'}${d.origin?`<span class="badge ${originBadgeClass(d.origin)}" style="font-size:9px;margin-left:3px">${d.origin}</span>`:''}</div>
+        ${d.shipdate?`<div style="font-size:10px;color:var(--text3)">선적 ${d.shipdate}</div>`:''}
+      </td>
+      <td style="font-size:11px">${d.qty||'-'}${d.cbm?`<div style="font-size:10px;color:var(--text3)">${d.cbm}CBM</div>`:''}</td>
+      <td style="font-size:11px;color:var(--amber)">${d.netweight?d.netweight+'kg':'-'}${d.temp?`<div style="font-size:10px;color:var(--blue)">${d.temp}</div>`:''}</td>
+      <td style="font-size:11px">${d.warehouse||'-'}</td>
+      <td style="font-size:11px">${d.whdate||'-'}${d.arrdate&&!d.whdate?`<div style="font-size:10px;color:var(--text3)">예정 ${d.arrdate}</div>`:''}</td>
+      <td style="font-size:11px;color:var(--amber);font-weight:600">${totalCost>0?'₩'+Math.round(totalCost).toLocaleString():'-'}</td>
+      <td style="font-size:11px;color:${d.note?'var(--amber)':'var(--text3)'}">${d.note||'-'}</td>
+      <td style="display:flex;gap:4px;flex-wrap:wrap">
+        ${invBtn}
+        <button class="btn" style="font-size:10px;padding:2px 6px" onclick="editCustoms(${d.id})">수정</button>
+        <button class="btn" style="font-size:10px;padding:2px 6px;color:var(--red)" onclick="delItem('customs',${d.id})">삭제</button>
+      </td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="12" style="text-align:center;padding:20px;color:var(--text3)">등록된 통관 건이 없습니다.</td></tr>';
+}
+
+// KPI 카드 클릭 → 필터 바로 적용
+function setCusFilterStatus(val) {
+  const sel = document.getElementById('cus-filter-status');
+  if (!sel) return;
+  // done_month / done_year는 done으로 필터
+  if (val === 'done_month' || val === 'done_year') {
+    sel.value = 'done';
+    // 월 필터도 같이 설정
+    const mEl = document.getElementById('cus-filter-month');
+    if (mEl && val === 'done_month') mEl.value = new Date().toISOString().slice(0,7);
+    if (mEl && val === 'done_year')  mEl.value = '';
+  } else {
+    sel.value = val;
+  }
+  renderCustoms();
+  // 탭이 통관내역 탭이 아니면 전환
+  setCusTab('list', document.querySelector('#page-customs .tab-btn'));
+}
+function addCustoms() {
+  const editId = document.getElementById('cus-edit-id')?.value;
+  const get = id => document.getElementById(id)?.value?.trim() || '';
+  const getNum = id => parseFloat(document.getElementById(id)?.value) || 0;
+
+  const item = {
+    id: editId ? parseInt(editId) : Date.now(),
+    exporter: get('cus-exporter'), importer: get('cus-importer'),
+    bl: get('cus-bl'), hs: get('cus-hs'),
+    item: get('cus-item'), itemqty: get('cus-itemqty'),
+    qty: get('cus-qty'), netweight: getNum('cus-netweight'),
+    origin: get('cus-origin'), invoiceAmt: getNum('cus-invoice-amt'),
+    shipdate: get('cus-shipdate'), arrdate: get('cus-arrdate'),
+    warehouse: get('cus-warehouse'), whdate: get('cus-whdate'),
+    tariff: getNum('cus-tariff'), vat: getNum('cus-vat'),
+    agencyFee: getNum('cus-agency-fee'), warehouseFee: getNum('cus-warehouse-fee'),
+    inspectFee: getNum('cus-inspect-fee'),
+    broker: get('cus-broker'), note: get('cus-note'),
+    // B/L 상세
+    vessel:          get('cus-vessel'),
+    container:       get('cus-container'),
+    containerType:   get('cus-container-type'),
+    seal:            get('cus-seal'),
+    portLoading:     get('cus-port-loading'),
+    portDischarge:   get('cus-port-discharge'),
+    freightTerms:    get('cus-freight-terms'),
+    pkgCount:        get('cus-pkg-count'),
+    cbm:             getNum('cus-cbm'),
+    temp:            get('cus-temp'),
+    vent:            get('cus-vent'),
+    notify:          get('cus-notify'),
+    status: document.getElementById('cus-status')?.value || 'run'
+  };
+
+  if (!item.exporter && !item.bl) { showToast('수출자 또는 B/L 번호를 입력하세요', 'err'); return; }
+
+  if (editId) {
+    const idx = DB.customs.findIndex(d => d.id === parseInt(editId));
+    if (idx >= 0) DB.customs[idx] = item;
+  } else {
+    DB.customs.push(item);
+  }
+
+  save(); closeModal('customs'); renderCustoms();
+  showToast(editId ? '통관 건 수정 완료' : '통관 건 등록 완료', 'ok');
+}
+
+function regFromCustoms(id) {
+  const c = DB.customs.find(d => d.id === id); if (!c) return;
+  document.getElementById('inv-bl').value    = c.bl    || '';
+  document.getElementById('inv-name').value  = c.item  || '';
+  document.getElementById('inv-vendor').value= c.exporter || '';
+  const specEl = document.getElementById('inv-spec'); if (specEl) specEl.value = '';
+  ['inv-seq','inv-stock','inv-daily-order','inv-daily-direct'].forEach(i => {
+    const el = document.getElementById(i); if(el) el.value = '';
+  });
+  document.getElementById('inv-safe-rate').value = '20';
+  document.getElementById('inv-lead').value       = '21';
+  openModal('inv');
+  showToast('통관 정보 자동 입력됨. 규격·수량·발주량 입력하세요.');
+}
+
+// ── PDF 파싱 (Claude API 활용) ────────────────────────────────────
+// ── B/L 상세 토글 ────────────────────────────────────────────────
+function toggleCusBLDetail() {
+  const el  = document.getElementById('cus-bl-detail');
+  const btn = document.getElementById('bl-detail-toggle');
+  const open = el?.style.display !== 'none';
+  if (el)  el.style.display  = open ? 'none' : '';
+  if (btn) btn.textContent   = open ? '▼ 펼치기' : '▲ 접기';
+}
+
+// ── 드래그앤드롭 처리 ─────────────────────────────────────────────
+function handleCusFileDrop(e) {
+  e.preventDefault();
+  document.getElementById('cus-drop-zone').style.borderColor = 'var(--border2)';
+  const file = e.dataTransfer.files[0];
+  if (file) {
+    autoDetectDocType(file.name);
+    parseCusDoc(file);
+  }
+}
+
+/** 파일명에서 서류 종류 자동 감지 */
+function autoDetectDocType(filename) {
+  const f = filename.toLowerCase();
+  const sel = document.getElementById('cus-doc-type');
+  if (!sel) return;
+  if (/b\/l|bl|bill.of.lading|提单|선하/.test(f))         sel.value = 'bl';
+  else if (/invoice|인보이스|发票|商业发票/.test(f))         sel.value = 'invoice';
+  else if (/packing|pack|패킹|装箱单/.test(f))             sel.value = 'packing';
+  else if (/origin|certificate|원산지|产地证|co\./.test(f)) sel.value = 'origin';
+  else if (/수입신고|import.decl|신고서/.test(f))           sel.value = 'import_decl';
+  else if (/contract|계약|합동|合同/.test(f))               sel.value = 'contract';
+}
+
+// ── 서류 타입별 프롬프트 생성 ──────────────────────────────────────
+function getCusDocPrompt(docType) {
+  const jsonSchema = `{
+  "exporter": "수출자 회사명",
+  "importer": "수입자 회사명",
+  "bl": "B/L 번호",
+  "hs": "HS 코드",
+  "item": "품목명 (한글 또는 영문)",
+  "itemqty": "품목 수량",
+  "qty": "포장 수량 (박스/CTNS 등 단위 포함)",
+  "netweight": "Net Weight 숫자만 (kg)",
+  "grossweight": "Gross Weight 숫자만 (kg)",
+  "origin": "원산지 국가명 (한글: 중국/베트남 등)",
+  "invoiceAmt": "인보이스 금액 숫자만 (USD)",
+  "invoiceCurrency": "통화 (USD/CNY 등)",
+  "shipdate": "선적일 YYYY-MM-DD",
+  "arrdate": "입항예정일 YYYY-MM-DD",
+  "warehouse": "지정창고명",
+  "whdate": "창고입고일 YYYY-MM-DD",
+  "vessel": "선박명/항차번호",
+  "container": "컨테이너 번호",
+  "containerType": "컨테이너 유형 (40HR/20GP 등)",
+  "seal": "씰(SEAL) 번호",
+  "portLoading": "선적항",
+  "portDischarge": "양하항",
+  "freightTerms": "운임 조건 (PREPAID/COLLECT)",
+  "pkgCount": "포장 수량 및 단위",
+  "cbm": "부피(CBM) 숫자만",
+  "temp": "냉장 온도",
+  "vent": "환기량",
+  "notify": "Notify Party",
+  "tariff": "관세 금액 숫자만 (원)",
+  "vat": "부가세 금액 숫자만 (원)",
+  "agencyFee": "통관대행료 숫자만 (원)",
+  "warehouseFee": "창고료/운반비 숫자만 (원)",
+  "inspectFee": "검역/검사비 숫자만 (원)",
+  "broker": "통관사명",
+  "note": "특이사항 (냉장 온도, 검역 등)"
+}`;
+
+  const typeHint = {
+    bl: '선하증권(Bill of Lading, B/L)',
+    invoice: '인보이스(Commercial Invoice)',
+    packing: '패킹리스트(Packing List)',
+    origin: '원산지증명서(Certificate of Origin)',
+    import_decl: '수입신고서',
+    contract: '수입 계약서',
+    other: '수입 통관 관련 서류'
+  }[docType] || '수입 통관 관련 서류';
+
+  return `이 문서는 수입 통관 관련 ${typeHint}입니다. 
+중국어, 영어 등 어떤 언어로 작성되어 있더라도 내용을 파악해서 아래 JSON 형식으로만 응답하세요.
+마크다운 없이 순수 JSON만 출력하세요. 찾을 수 없는 항목은 빈 문자열("")로 두세요.
+
+${jsonSchema}`;
+}
+
+// ── 메인 파싱 함수 (PDF·사진·엑셀·워드 전부 지원) ─────────────────
+async function parseCusDoc(file) {
+  if (!file) return;
+
+  // 파일명 기반 서류 종류 자동 감지
+  autoDetectDocType(file.name);
+  const docType  = document.getElementById('cus-doc-type')?.value || 'bl';
+  const loadEl   = document.getElementById('cus-doc-loading');
+  const msgEl    = document.getElementById('cus-doc-loading-msg');
+  const resultEl = document.getElementById('cus-pdf-result');
+  const dropZone = document.getElementById('cus-drop-zone');
+
+  if (loadEl)   loadEl.style.display  = '';
+  if (resultEl) resultEl.innerHTML    = '';
+  if (dropZone) dropZone.style.borderColor = 'var(--teal)';
+
+  const updateMsg = msg => { if (msgEl) msgEl.textContent = msg; };
+  const ext    = file.name.split('.').pop().toLowerCase();
+  const isPdf  = ext === 'pdf';
+  const isImg  = ['jpg','jpeg','png','gif','webp','bmp'].includes(ext);
+  const isXls  = ['xls','xlsx'].includes(ext);
+  const isDoc  = ['doc','docx','hwp'].includes(ext);
+
+  try {
+    let messages = [];
+    const prompt  = getCusDocPrompt(docType);
+
+    if (isPdf) {
+      updateMsg('PDF 변환 중...');
+      const base64 = await toBase64(file);
+      messages = [{ role:'user', content:[
+        { type:'document', source:{ type:'base64', media_type:'application/pdf', data:base64 } },
+        { type:'text', text:prompt }
+      ]}];
+
+    } else if (isImg) {
+      updateMsg('이미지 분석 중...');
+      const base64  = await toBase64(file);
+      const mtype   = ext==='jpg'||ext==='jpeg' ? 'image/jpeg'
+                    : ext==='png' ? 'image/png'
+                    : ext==='gif' ? 'image/gif'
+                    : ext==='webp'? 'image/webp' : 'image/jpeg';
+      messages = [{ role:'user', content:[
+        { type:'image', source:{ type:'base64', media_type:mtype, data:base64 } },
+        { type:'text',  text:prompt }
+      ]}];
+
+    } else if (isXls) {
+      updateMsg('엑셀 파싱 중...');
+      const ab = await file.arrayBuffer();
+      const wb = XLSX.read(ab, { type:'array' });
+      let txt  = '';
+      wb.SheetNames.forEach(sn => {
+        txt += `[시트: ${sn}]
+`;
+        txt += XLSX.utils.sheet_to_csv(wb.Sheets[sn]) + '
+
+';
+      });
+      messages = [{ role:'user', content:`파일명: ${file.name}
+
+${txt.slice(0,8000)}
+
+${prompt}` }];
+
+    } else if (isDoc) {
+      updateMsg('문서 읽는 중...');
+      let txt = '';
+      try {
+        const ab     = await file.arrayBuffer();
+        const result = await mammoth.extractRawText({ arrayBuffer:ab });
+        txt = result.value;
+      } catch {
+        txt = `[파일명: ${file.name}] 내용 직접 읽기 불가. 파일명 기반 추측만 허용.`;
+      }
+      messages = [{ role:'user', content:`파일명: ${file.name}
+
+${txt.slice(0,8000)}
+
+${prompt}` }];
+
+    } else {
+      throw new Error(`지원하지 않는 파일 형식: .${ext}
+(PDF·JPG·PNG·XLS·XLSX·DOC·DOCX 사용 가능)`);
+    }
+
+    updateMsg('AI가 항목을 추출하는 중...');
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json' },
+      body:JSON.stringify({ model:'claude-sonnet-4-20250514', max_tokens:1500, messages })
+    });
+
+    const data = await resp.json();
+    if (data.error) throw new Error(data.error.message);
+
+    const rawText = data.content?.map(b => b.text||'').join('').trim();
+    let parsed;
+    try {
+      parsed = JSON.parse(rawText.replace(/```json|```/g,'').trim());
+    } catch {
+      throw new Error('AI 응답 파싱 실패. 다시 시도해 주세요.');
+    }
+
+    if (loadEl)   loadEl.style.display = 'none';
+    if (dropZone) dropZone.style.borderColor = 'var(--teal)';
+    showCusDocResult(parsed, file.name, docType);
+
+  } catch(e) {
+    if (loadEl)   loadEl.style.display = 'none';
+    if (dropZone) dropZone.style.borderColor = 'var(--border2)';
+    if (resultEl) resultEl.innerHTML = `
+      <div style="color:var(--red);font-size:12px;padding:12px 14px;background:rgba(248,113,113,0.08);border-radius:8px;border:1px solid rgba(248,113,113,0.3)">
+        ❌ <strong>오류</strong>: ${e.message.replace(/
+/g,'<br>')}
+      </div>`;
+  }
+}
+
+function toBase64(file) {
+  return new Promise((res,rej) => {
+    const r = new FileReader();
+    r.onload  = () => res(r.result.split(',')[1]);
+    r.onerror = () => rej(new Error('파일 읽기 실패'));
+    r.readAsDataURL(file);
+  });
+}
+
+// ── 추출 결과 미리보기 카드 ───────────────────────────────────────
+function showCusDocResult(parsed, filename, docType) {
+  const resultEl = document.getElementById('cus-pdf-result'); if (!resultEl) return;
+
+  const typeLabel = { bl:'B/L', invoice:'인보이스', packing:'패킹리스트',
+    origin:'원산지증명서', import_decl:'수입신고서', contract:'계약서', other:'서류' }[docType]||'서류';
+
+  // 추출된 필드만 색상별로 그룹 표시
+  const row = (k,v) => v && v!=='null' && v!==''
+    ? `<div style="display:flex;gap:8px;margin-bottom:5px;font-size:12px">
+        <span style="color:var(--text3);min-width:78px;flex-shrink:0">${k}</span>
+        <span style="color:var(--text);font-weight:500">${v}</span>
+       </div>` : '';
+
+  const groups = [
+    { title:'기본', color:'var(--teal)', rows:[
+      row('수출자', parsed.exporter), row('수입자', parsed.importer),
+      row('B/L번호', parsed.bl),      row('품목',   parsed.item),
+      row('원산지',  parsed.origin),  row('HS코드', parsed.hs),
+    ]},
+    { title:'물량', color:'var(--amber)', rows:[
+      row('포장수량', parsed.qty||parsed.pkgCount),
+      row('NetWeight', parsed.netweight ? parsed.netweight+'kg' : ''),
+      row('GrossWgt',  parsed.grossweight ? parsed.grossweight+'kg' : ''),
+      row('CBM',       parsed.cbm ? parsed.cbm+'CBM' : ''),
+      row('인보이스',  parsed.invoiceAmt ? (parsed.invoiceCurrency||'USD')+' '+Number(parsed.invoiceAmt).toLocaleString() : ''),
+    ]},
+    { title:'운송', color:'var(--blue)', rows:[
+      row('선박/항차', parsed.vessel),
+      row('컨테이너',  parsed.container+(parsed.containerType?' ('+parsed.containerType+')':'')),
+      row('씰번호',    parsed.seal),
+      row('선적항',    parsed.portLoading),
+      row('양하항',    parsed.portDischarge),
+      row('선적일',    parsed.shipdate),
+      row('입항예정',  parsed.arrdate),
+      row('운임조건',  parsed.freightTerms),
+      row('냉장온도',  parsed.temp),
+      row('환기량',    parsed.vent),
+    ]},
+  ].filter(g => g.rows.some(r=>r));
+
+  // 비용 정보 (있을 때만)
+  const hasCost = [parsed.tariff,parsed.vat,parsed.agencyFee,parsed.warehouseFee,parsed.inspectFee].some(Boolean);
+  const costHtml = hasCost ? `<div style="margin-top:10px;padding:10px;background:rgba(251,191,36,0.08);border-radius:6px;font-size:12px">
+    <div style="font-size:10px;font-weight:600;color:var(--amber);margin-bottom:6px">💰 비용</div>
+    ${row('관세', parsed.tariff ? '₩'+Number(parsed.tariff).toLocaleString() : '')}
+    ${row('부가세', parsed.vat ? '₩'+Number(parsed.vat).toLocaleString() : '')}
+    ${row('대행료', parsed.agencyFee ? '₩'+Number(parsed.agencyFee).toLocaleString() : '')}
+    ${row('창고료', parsed.warehouseFee ? '₩'+Number(parsed.warehouseFee).toLocaleString() : '')}
+    ${row('검역비', parsed.inspectFee ? '₩'+Number(parsed.inspectFee).toLocaleString() : '')}
+  </div>` : '';
+
+  // parsed를 안전하게 전달
+  const safeData = encodeURIComponent(JSON.stringify(parsed));
+
+  resultEl.innerHTML = `
+    <div style="background:var(--bg3);border:1px solid rgba(45,212,160,0.3);border-radius:10px;padding:16px;margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+        <div style="font-size:13px;font-weight:600;color:var(--teal)">✅ ${typeLabel} 추출 완료</div>
+        <div style="font-size:11px;color:var(--text3)">${filename}</div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px">
+        ${groups.map(g=>`
+          <div>
+            <div style="font-size:10px;font-weight:700;color:${g.color};margin-bottom:8px;letter-spacing:.05em">${g.title.toUpperCase()}</div>
+            ${g.rows.join('')}
+          </div>`).join('')}
+      </div>
+      ${costHtml}
+      ${parsed.note ? `<div style="margin-top:8px;font-size:11px;color:var(--amber)">📋 ${parsed.note}</div>` : ''}
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-teal" style="font-size:12px;padding:6px 14px" onclick="applyPdfToModal(JSON.parse(decodeURIComponent('${safeData}')))">
+        ✏️ 등록 폼에 적용
+      </button>
+      <button class="btn" style="font-size:12px" onclick="document.getElementById('cus-pdf-result').innerHTML='';document.getElementById('cus-drop-zone').style.borderColor='var(--border2)'">
+        초기화
+      </button>
+    </div>`;
+}
+
+function applyPdfToModal(parsed) {
+  const set = (id, val) => {
+    const el = document.getElementById(id);
+    if (el && val !== undefined && val !== null && val !== '' && val !== 'null') el.value = val;
+  };
+
+  // 기본 정보
+  set('cus-exporter',    parsed.exporter);
+  set('cus-importer',    parsed.importer);
+  set('cus-bl',          parsed.bl);
+  set('cus-hs',          parsed.hs);
+  set('cus-item',        parsed.item);
+  set('cus-itemqty',     parsed.itemqty);
+  set('cus-qty',         parsed.qty || parsed.pkgCount);
+  set('cus-netweight',   parsed.netweight);
+  set('cus-origin',      parsed.origin);
+  set('cus-invoice-amt', parsed.invoiceAmt);
+  // 일정
+  set('cus-shipdate',  parsed.shipdate);
+  set('cus-arrdate',   parsed.arrdate);
+  set('cus-warehouse', parsed.warehouse);
+  set('cus-whdate',    parsed.whdate);
+  // B/L 상세
+  set('cus-vessel',          parsed.vessel);
+  set('cus-container',       parsed.container);
+  set('cus-container-type',  parsed.containerType);
+  set('cus-seal',            parsed.seal);
+  set('cus-port-loading',    parsed.portLoading);
+  set('cus-port-discharge',  parsed.portDischarge);
+  set('cus-freight-terms',   parsed.freightTerms);
+  set('cus-pkg-count',       parsed.pkgCount || parsed.qty);
+  set('cus-cbm',             parsed.cbm);
+  set('cus-temp',            parsed.temp);
+  set('cus-vent',            parsed.vent);
+  set('cus-notify',          parsed.notify);
+  // 비용
+  set('cus-tariff',        parsed.tariff);
+  set('cus-vat',           parsed.vat);
+  set('cus-agency-fee',    parsed.agencyFee);
+  set('cus-warehouse-fee', parsed.warehouseFee);
+  set('cus-inspect-fee',   parsed.inspectFee);
+  set('cus-broker',        parsed.broker);
+  set('cus-note',          parsed.note);
+
+  // B/L 상세 자동 펼치기
+  if (parsed.vessel || parsed.container || parsed.seal) {
+    const d = document.getElementById('cus-bl-detail');
+    const b = document.getElementById('bl-detail-toggle');
+    if (d) d.style.display = '';
+    if (b) b.textContent = '▲ 접기';
+  }
+
+  calcCusTotalCost();
+  bindCusCostEvents();
+  document.getElementById('cus-modal-title').textContent = '통관 건 등록 (자동입력)';
+  document.getElementById('cus-edit-id').value = '';
+  document.getElementById('modal-customs')?.classList.add('open');
+  // 업로드 패널 닫기
+  closeCusPdfUpload();
+  showToast('서류 내용이 폼에 적용됐습니다. 확인 후 저장하세요.', 'ok');
+}
+
+// ── 통관 비용 정산서 ─────────────────────────────────────────────
+function renderCusCostSheet() {
+  const el = document.getElementById('cus-cost-sheet'); if (!el) return;
+
+  const fMonth    = document.getElementById('cus-cost-month-filter')?.value || new Date().toISOString().slice(0,7);
+  const fImporter = document.getElementById('cus-cost-importer-filter')?.value || 'all';
+
+  // 수입자 필터 셀렉트 업데이트
+  const importers = [...new Set(DB.customs.map(d=>d.importer).filter(Boolean))];
+  const sel = document.getElementById('cus-cost-importer-filter');
+  if (sel) {
+    const cv = sel.value;
+    sel.innerHTML = '<option value="all">전체 수입자</option>' + importers.map(i=>`<option value="${i}">${i}</option>`).join('');
+    if (cv) sel.value = cv;
+  }
+
+  let list = DB.customs.filter(d => d.whdate?.startsWith(fMonth) || d.arrdate?.startsWith(fMonth) || d.shipdate?.startsWith(fMonth));
+  if (fImporter !== 'all') list = list.filter(d => d.importer === fImporter);
+
+  if (!list.length) {
+    el.innerHTML = '<div style="text-align:center;padding:32px;color:var(--text3);font-size:13px">해당 기간에 통관 데이터가 없습니다.</div>';
+    return;
+  }
+
+  const totalTariff   = list.reduce((s,d)=>s+(d.tariff||0),0);
+  const totalVat      = list.reduce((s,d)=>s+(d.vat||0),0);
+  const totalAgency   = list.reduce((s,d)=>s+(d.agencyFee||0),0);
+  const totalWarehouse= list.reduce((s,d)=>s+(d.warehouseFee||0),0);
+  const totalInspect  = list.reduce((s,d)=>s+(d.inspectFee||0),0);
+  const grandTotal    = totalTariff+totalVat+totalAgency+totalWarehouse+totalInspect;
+  const totalNetWeight= list.reduce((s,d)=>s+(parseFloat(d.netweight)||0),0);
+  const totalInvoice  = list.reduce((s,d)=>s+(parseFloat(d.invoiceAmt)||0),0);
+
+  el.innerHTML = `
+    <!-- 정산서 헤더 -->
+    <div id="cost-sheet-printable" style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:28px 32px;font-size:13px">
+
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;padding-bottom:16px;border-bottom:2px solid var(--teal)">
+        <div>
+          <div style="font-size:20px;font-weight:700;color:var(--teal)">통관 비용 정산서</div>
+          <div style="font-size:12px;color:var(--text3);margin-top:4px">Customs Cost Settlement</div>
+        </div>
+        <div style="text-align:right;font-size:12px;color:var(--text2)">
+          <div>정산 기간: <strong>${fMonth}</strong></div>
+          <div>수입자: <strong>${fImporter==='all'?'전체':fImporter}</strong></div>
+          <div>작성일: ${new Date().toLocaleDateString('ko-KR')}</div>
+        </div>
+      </div>
+
+      <!-- 요약 KPI -->
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px">
+        ${[
+          ['통관 건수', list.length+'건', 'var(--text)'],
+          ['총 Net Weight', Math.round(totalNetWeight).toLocaleString()+'kg', 'var(--amber)'],
+          ['총 인보이스', totalInvoice?'$'+Math.round(totalInvoice).toLocaleString():'-', 'var(--blue)'],
+          ['총 통관비용', '₩'+Math.round(grandTotal).toLocaleString(), 'var(--teal)'],
+        ].map(([l,v,c])=>`
+          <div style="background:var(--bg3);border-radius:8px;padding:12px;text-align:center">
+            <div style="font-size:10px;color:var(--text3);margin-bottom:4px">${l}</div>
+            <div style="font-size:17px;font-weight:700;color:${c}">${v}</div>
+          </div>`).join('')}
+      </div>
+
+      <!-- 비용 항목별 합계 -->
+      <div style="margin-bottom:24px">
+        <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:10px">비용 항목별 합계</div>
+        <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px">
+          ${[
+            ['관세', totalTariff],
+            ['부가세', totalVat],
+            ['통관대행료', totalAgency],
+            ['창고료/운반비', totalWarehouse],
+            ['검역/검사비', totalInspect],
+          ].map(([l,v])=>`
+            <div style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;text-align:center">
+              <div style="font-size:10px;color:var(--text3)">${l}</div>
+              <div style="font-size:13px;font-weight:600;color:${v>0?'var(--amber)':'var(--text3)'};margin-top:4px">${v>0?'₩'+Math.round(v).toLocaleString():'-'}</div>
+            </div>`).join('')}
+        </div>
+        <div style="text-align:right;margin-top:10px;font-size:14px;font-weight:700;color:var(--teal)">
+          합계: ₩${Math.round(grandTotal).toLocaleString()}
+        </div>
+      </div>
+
+      <!-- 건별 상세 -->
+      <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:10px">건별 상세 내역</div>
+      <div class="tbl-scroll">
+        <table class="tbl" style="font-size:11px">
+          <thead><tr style="background:var(--bg3)">
+            <th>B/L</th><th>품목</th><th>수출자</th><th>수입자</th>
+            <th style="text-align:right">Net Weight</th>
+            <th style="text-align:right">관세</th>
+            <th style="text-align:right">부가세</th>
+            <th style="text-align:right">대행료</th>
+            <th style="text-align:right">창고료</th>
+            <th style="text-align:right">검역비</th>
+            <th style="text-align:right;color:var(--amber)">합계</th>
+            <th>상태</th>
+          </tr></thead>
+          <tbody>
+            ${list.map(d => {
+              const tot = (d.tariff||0)+(d.vat||0)+(d.agencyFee||0)+(d.warehouseFee||0)+(d.inspectFee||0);
+              const fmt2 = v => v>0 ? '₩'+Math.round(v).toLocaleString() : '-';
+              return `<tr>
+                <td class="mono" style="font-size:10px">${d.bl||'-'}</td>
+                <td>${d.item||'-'}${d.origin?`<span style="font-size:10px;color:var(--text3)"> (${d.origin})</span>`:''}</td>
+                <td style="font-size:11px">${d.exporter||'-'}</td>
+                <td style="font-size:11px">${d.importer||'-'}</td>
+                <td style="text-align:right;color:var(--amber)">${d.netweight?d.netweight+'kg':'-'}</td>
+                <td style="text-align:right">${fmt2(d.tariff)}</td>
+                <td style="text-align:right">${fmt2(d.vat)}</td>
+                <td style="text-align:right">${fmt2(d.agencyFee)}</td>
+                <td style="text-align:right">${fmt2(d.warehouseFee)}</td>
+                <td style="text-align:right">${fmt2(d.inspectFee)}</td>
+                <td style="text-align:right;font-weight:700;color:var(--teal)">${tot>0?'₩'+Math.round(tot).toLocaleString():'-'}</td>
+                <td><span class="badge ${d.status==='done'?'b-teal':d.status==='wait'?'b-blue':'b-amber'}" style="font-size:9px">${d.status==='done'?'완료':d.status==='wait'?'대기':'진행중'}</span></td>
+              </tr>`;
+            }).join('')}
+            <tr style="background:var(--bg3);font-weight:700;border-top:2px solid var(--border2)">
+              <td colspan="4" style="color:var(--text2)">합 계</td>
+              <td style="text-align:right;color:var(--amber)">${Math.round(totalNetWeight).toLocaleString()}kg</td>
+              <td style="text-align:right">₩${Math.round(totalTariff).toLocaleString()}</td>
+              <td style="text-align:right">₩${Math.round(totalVat).toLocaleString()}</td>
+              <td style="text-align:right">₩${Math.round(totalAgency).toLocaleString()}</td>
+              <td style="text-align:right">₩${Math.round(totalWarehouse).toLocaleString()}</td>
+              <td style="text-align:right">₩${Math.round(totalInspect).toLocaleString()}</td>
+              <td style="text-align:right;color:var(--teal);font-size:13px">₩${Math.round(grandTotal).toLocaleString()}</td>
+              <td></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+function exportCusCostPdf() {
+  window.print();
+  showToast('브라우저 인쇄 창에서 PDF로 저장하세요.', 'ok');
 }
 
 // ══ IN/OUT ═════════════════════════════════════════════════════════
@@ -2236,15 +3300,99 @@ function applyGlobalSafeRate(){
 }
 
 // ══ CLIENTS ════════════════════════════════════════════════════════
-function renderClients(){
-  const body=document.getElementById('clients-body'); if(!body)return;
-  updatePlatformSelects();
-  body.innerHTML=DB.clients.map(d=>`<tr><td class="td-main">${d.name}</td><td><span class="badge ${d.type==='수발주'?'b-blue':d.type==='직송'?'b-purple':'b-teal'}">${d.type}</span></td><td>${d.platform||'-'}</td><td>${d.manager||'-'}</td><td style="font-size:11px">${d.contact||'-'}</td><td style="font-size:11px;color:var(--text3)">${d.note||'-'}</td><td><button class="btn" style="font-size:10px;padding:3px 6px;color:var(--red)" onclick="delItem('clients',${d.id})">삭제</button></td></tr>`).join('')||'<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--text3)">거래처를 추가하세요.</td></tr>';
+function openClientModal(id) {
+  const editId = id || null;
+  document.getElementById('cl-edit-id').value = editId || '';
+  document.getElementById('cl-modal-title').textContent = editId ? '거래처 수정' : '거래처 추가';
+
+  const fields = ['cl-name','cl-center','cl-bizno','cl-address',
+    'cl-mgr1-name','cl-mgr1-tel','cl-mgr2-name','cl-mgr2-tel',
+    'cl-proxy','cl-situation','cl-note'];
+
+  if (editId) {
+    const d = DB.clients.find(c => c.id === editId);
+    if (!d) return;
+    const set = (elId, val) => { const el=document.getElementById(elId); if(el) el.value=val||''; };
+    set('cl-name', d.name);       set('cl-center', d.center);
+    set('cl-bizno', d.bizno);     set('cl-address', d.address);
+    set('cl-mgr1-name', d.mgr1Name); set('cl-mgr1-tel', d.mgr1Tel);
+    set('cl-mgr2-name', d.mgr2Name); set('cl-mgr2-tel', d.mgr2Tel);
+    set('cl-proxy', d.proxy);     set('cl-situation', d.situation);
+    set('cl-note', d.note);
+    document.getElementById('cl-type').value = d.type || '수발주';
+  } else {
+    fields.forEach(f => { const el=document.getElementById(f); if(el) el.value=''; });
+    document.getElementById('cl-type').value = '수발주';
+  }
+  document.getElementById('modal-client')?.classList.add('open');
 }
-function addClient(){
-  const name=document.getElementById('cl-name').value.trim(); if(!name){showToast('거래처명 입력 필요','err');return;}
-  const item={id:Date.now(),name,type:document.getElementById('cl-type').value,platform:document.getElementById('cl-platform').value,manager:document.getElementById('cl-manager').value,contact:document.getElementById('cl-contact').value,note:document.getElementById('cl-note').value};
-  DB.clients.push(item); save(); closeModal('client'); renderClients(); showToast('거래처 추가 완료','ok');
+
+function renderClients() {
+  const body = document.getElementById('clients-body'); if (!body) return;
+  const q = document.getElementById('cl-search')?.value?.trim().toLowerCase() || '';
+
+  const list = q
+    ? DB.clients.filter(d => d.name?.toLowerCase().includes(q) || d.center?.toLowerCase().includes(q))
+    : DB.clients;
+
+  body.innerHTML = list.map(d => {
+    const typeBadge = `<span class="badge ${d.type==='수발주'?'b-blue':d.type==='직송'?'b-purple':'b-teal'}" style="font-size:10px">${d.type||'수발주'}</span>`;
+    const mgr1 = d.mgr1Name ? `${d.mgr1Name}${d.mgr1Tel?'<div style="font-size:10px;color:var(--text3)">'+d.mgr1Tel+'</div>':''}` : '-';
+    const mgr2 = d.mgr2Name ? `${d.mgr2Name}${d.mgr2Tel?'<div style="font-size:10px;color:var(--text3)">'+d.mgr2Tel+'</div>':''}` : '-';
+    return `<tr>
+      <td class="td-main">
+        ${d.name}
+        <div style="margin-top:2px">${typeBadge}</div>
+      </td>
+      <td style="font-size:12px">${d.center||'-'}</td>
+      <td style="font-size:11px;font-family:monospace;color:var(--text2)">${d.bizno||'-'}</td>
+      <td style="font-size:11px;color:var(--text2);max-width:160px;white-space:normal">${d.address||'-'}</td>
+      <td style="font-size:12px">${mgr1}</td>
+      <td style="font-size:12px">${mgr2}</td>
+      <td style="font-size:12px;color:var(--text2)">${d.proxy||'-'}</td>
+      <td style="font-size:12px;color:var(--text2)">${d.situation||'-'}</td>
+      <td style="font-size:11px;color:var(--text3)">${d.note||'-'}</td>
+      <td style="display:flex;gap:4px">
+        <button class="btn" style="font-size:10px;padding:3px 7px" onclick="openClientModal('${d.id}')">수정</button>
+        <button class="btn" style="font-size:10px;padding:3px 6px;color:var(--red)" onclick="delItem('clients',${JSON.stringify(d.id)})">삭제</button>
+      </td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="10" style="text-align:center;padding:24px;color:var(--text3)">거래처를 추가하세요.</td></tr>';
+}
+
+function addClient() {
+  const name = document.getElementById('cl-name')?.value.trim();
+  if (!name) { showToast('업체명을 입력하세요', 'err'); return; }
+
+  const get = id => document.getElementById(id)?.value?.trim() || '';
+  const editId = document.getElementById('cl-edit-id')?.value;
+
+  const item = {
+    id:        editId || Date.now(),
+    name,
+    center:    get('cl-center'),
+    bizno:     get('cl-bizno'),
+    type:      document.getElementById('cl-type')?.value || '수발주',
+    address:   get('cl-address'),
+    mgr1Name:  get('cl-mgr1-name'),
+    mgr1Tel:   get('cl-mgr1-tel'),
+    mgr2Name:  get('cl-mgr2-name'),
+    mgr2Tel:   get('cl-mgr2-tel'),
+    proxy:     get('cl-proxy'),
+    situation: get('cl-situation'),
+    note:      get('cl-note'),
+  };
+
+  if (editId) {
+    const idx = DB.clients.findIndex(c => String(c.id) === String(editId));
+    if (idx >= 0) DB.clients[idx] = item;
+    showToast('거래처 수정 완료', 'ok');
+  } else {
+    DB.clients.push(item);
+    showToast('거래처 추가 완료', 'ok');
+  }
+
+  save(); closeModal('client'); renderClients();
 }
 function searchClient(val){
   const drop=document.getElementById('io-client-drop'); if(!drop)return;
@@ -3187,20 +4335,6 @@ function loadSettingsUI(){if(DB.settings?.sheetId){document.getElementById('shee
 function saveSheetId(){const v=document.getElementById('sheets-id').value.trim();if(!v)return;DB.settings.sheetId=v;save();document.getElementById('sheets-badge').textContent='연동됨';showToast('Sheets ID 저장','ok');}
 
 // ══ UTILS ══════════════════════════════════════════════════════════
-function openModal(id){
-  if(id==='inout'){
-    populateInvSelect('io-inv-id');
-    const dateEl=document.getElementById('io-date');
-    if(dateEl&&!dateEl.value)dateEl.value=new Date().toISOString().slice(0,10);
-  }
-  if(id==='order-manual'){
-    updatePlatformSelects();
-    const d=document.getElementById('om-date');
-    if(d&&!d.value)d.value=new Date().toISOString().slice(0,10);
-  }
-  if(id==='safe-rate')renderSafeRateList();
-  document.getElementById('modal-'+id)?.classList.add('open');
-}
 function closeModal(id){document.getElementById('modal-'+id)?.classList.remove('open');}
 document.querySelectorAll('.modal-overlay').forEach(m=>m.addEventListener('click',e=>{if(e.target===m)m.classList.remove('open');}));
 function delItem(key,id){if(!confirm('삭제하시겠습니까?'))return;DB[key]=DB[key].filter(d=>d.id!==id);save();renderAll();showToast('삭제 완료');}
