@@ -3447,6 +3447,22 @@ function destroyChart(id) { if (_charts[id]) { _charts[id].destroy(); delete _ch
 // 팔레트 (다크 배경 기준)
 const PAL = ['#2dd4a0','#a78bfa','#60a5fa','#fbbf24','#f87171','#4ade80','#fb923c','#e879f9','#34d399','#818cf8','#f472b6','#facc15','#38bdf8','#a3e635','#fb7185'];
 
+// ── 전역 공통 함수 ─────────────────────────────────────────────────
+function originColor(origin) {
+  if (origin==='국내산')     return 'rgba(45,212,160,0.82)';
+  if (origin==='중국산')     return 'rgba(251,191,36,0.82)';
+  if (origin==='베트남산')   return 'rgba(96,165,250,0.82)';
+  if (origin==='뉴질랜드산') return 'rgba(167,139,250,0.82)';
+  if (origin==='미국산')     return 'rgba(248,113,113,0.82)';
+  return 'rgba(74,222,128,0.75)';
+}
+function makeLabel(it) {
+  const base = (it.displayName||it.name||'').length > 14
+    ? (it.displayName||it.name).slice(0,14)+'…'
+    : (it.displayName||it.name||'');
+  return it.origin ? base+'('+it.origin.replace('산','')+')' : base;
+}
+
 let _ovTab = 'day';
 function setOvTab(tab) {
   _ovTab = tab;
@@ -3816,20 +3832,6 @@ function renderOvItem() {
   const kgItems  = all.filter(i=>i.hasKg).sort((a,b)=>b.kg-a.kg);
   const amtItems = [...all].sort((a,b)=>b.amount-a.amount);
 
-  // 원산지 색상
-  function originColor(origin) {
-    if (origin==='국내산')    return 'rgba(45,212,160,0.82)';
-    if (origin==='중국산')    return 'rgba(251,191,36,0.82)';
-    if (origin==='베트남산')  return 'rgba(96,165,250,0.82)';
-    if (origin==='뉴질랜드산') return 'rgba(167,139,250,0.82)';
-    if (origin==='미국산')    return 'rgba(248,113,113,0.82)';
-    return 'rgba(74,222,128,0.75)';
-  }
-  function makeLabel(it) {
-    const base = it.displayName.length>14 ? it.displayName.slice(0,14)+'…' : it.displayName;
-    return it.origin ? base+'('+it.origin.replace('산','')+')'  : base;
-  }
-
   // 원산지 범례 업데이트
   const originsUsed = [...new Set(kgItems.map(i=>i.origin).filter(Boolean))];
   const legEl = document.getElementById('ov-origin-legend');
@@ -4165,20 +4167,6 @@ function renderItemsPage() {
   document.getElementById('it-total-qty').textContent    = totalQty.toLocaleString()+'개';
   document.getElementById('it-total-amt').textContent    = fmt(totalAmt);
   document.getElementById('it-total-weight').textContent = Math.round(totalKg).toLocaleString()+'kg';
-
-  // 원산지 색상 (공통)
-  function originColor(origin) {
-    if (origin==='국내산')    return 'rgba(45,212,160,0.82)';
-    if (origin==='중국산')    return 'rgba(251,191,36,0.82)';
-    if (origin==='베트남산')  return 'rgba(96,165,250,0.82)';
-    if (origin==='뉴질랜드산') return 'rgba(167,139,250,0.82)';
-    if (origin==='미국산')    return 'rgba(248,113,113,0.82)';
-    return 'rgba(74,222,128,0.75)';
-  }
-  function makeLabel(it) {
-    const base = it.displayName.length>14?it.displayName.slice(0,14)+'…':it.displayName;
-    return it.origin ? base+'('+it.origin.replace('산','')+')'  : base;
-  }
 
   // ── 무게 차트 — kg 환산된 전체 품목 (동적 높이)
   destroyChart('items-weight');
